@@ -8,8 +8,8 @@ pub mod file;
 mod ty;
 
 pub use self::error::Error;
-pub use self::ty::Type;
+pub use self::ty::{Type, Types};
 
-pub fn parse(b: &[u8]) -> Result<self::ty::Types, Error> {
-    self::ty::Types::parse(untrusted::Input::from(b))
+pub fn parse(b: &[u8]) -> Result<self::Types, Error> {
+    self::Types::parse(untrusted::Input::from(b))
 }

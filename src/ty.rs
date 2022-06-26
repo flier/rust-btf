@@ -13,18 +13,21 @@ use crate::{
 };
 
 #[derive(Debug, Clone, PartialEq, IsVariant)]
-#[cfg_attr(feature = "serde", derive(Serialize))]
-#[cfg_attr(feature = "serde", serde(tag = "type", rename_all = "snake_case"))]
+#[cfg_attr(
+    feature = "serde",
+    derive(Serialize),
+    serde(tag = "kind", rename_all = "SCREAMING_SNAKE_CASE")
+)]
 pub enum Type<'a> {
     Void,
-    Integer {
+    Int {
         name: Option<&'a str>,
         size: usize,
         bits_offset: usize,
         nr_bits: usize,
         encoding: file::IntEncoding,
     },
-    Pointer {
+    Ptr {
         name: Option<&'a str>,
         type_id: u32,
     },
@@ -49,9 +52,9 @@ pub enum Type<'a> {
         size: usize,
         values: Vec<Enum<'a>>,
     },
-    Forward {
+    Fwd {
         name: Option<&'a str>,
-        kind: file::Kind,
+        fwd_kind: file::Kind,
     },
     Typedef {
         name: Option<&'a str>,
@@ -84,7 +87,7 @@ pub enum Type<'a> {
         type_id: u32,
         linkage: file::Linkage,
     },
-    DataSection {
+    DataSec {
         name: Option<&'a str>,
         size: usize,
         sections: Vec<file::VarSectInfo>,
@@ -114,6 +117,7 @@ pub struct Member<'a> {
     pub bitfield_size: u32,
 }
 
+#[cfg(feature = "serde")]
 fn size_is_zero(n: &u32) -> bool {
     *n == 0
 }
@@ -122,7 +126,7 @@ fn size_is_zero(n: &u32) -> bool {
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct Enum<'a> {
     pub name: Option<&'a str>,
-    pub value: u64,
+    pub val: u64,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -143,7 +147,7 @@ impl<'a> Param<'a> {
 }
 
 pub struct Types<'a> {
-    header: file::Header,
+    is_le: bool,
     types: untrusted::Reader<'a>,
     strs: untrusted::Input<'a>,
 }
@@ -151,7 +155,7 @@ pub struct Types<'a> {
 impl<'a> Types<'a> {
     pub fn parse(input: untrusted::Input<'a>) -> Result<Types<'a>, Error> {
         file::parse(input).map(|f| Types {
-            header: f.header,
+            is_le: f.header.is_le(),
             types: untrusted::Reader::new(f.types),
             strs: f.strs,
         })
@@ -165,7 +169,7 @@ impl<'a> Iterator for Types<'a> {
         if self.types.at_end() {
             None
         } else {
-            let ty = if self.header.is_le() {
+            let ty = if self.is_le {
                 read_type::<LittleEndian>(&mut self.types, &self.strs)
             } else {
                 read_type::<BigEndian>(&mut self.types, &self.strs)
@@ -189,7 +193,7 @@ pub fn read_type<'a, O: ByteOrder>(
         Kind::Integer => {
             let int = file::Int::read::<O>(r)?;
 
-            Type::Integer {
+            Type::Int {
                 name,
                 size: ty.size(),
                 bits_offset: int.offset(),
@@ -197,7 +201,7 @@ pub fn read_type<'a, O: ByteOrder>(
                 encoding: int.encoding(),
             }
         }
-        Kind::Pointer => Type::Pointer {
+        Kind::Pointer => Type::Ptr {
             name,
             type_id: ty.type_id(),
         },
@@ -269,7 +273,7 @@ pub fn read_type<'a, O: ByteOrder>(
                     file::Enum::read::<O>(r).and_then(|v| {
                         Ok(Enum {
                             name: file::read_str(strs, v.name_off)?,
-                            value: v.val as u64,
+                            val: v.val as u64,
                         })
                     })
                 })
@@ -283,15 +287,15 @@ pub fn read_type<'a, O: ByteOrder>(
                     file::Enum64::read::<O>(r).and_then(|v| {
                         Ok(Enum {
                             name: file::read_str(strs, v.name_off)?,
-                            value: (v.val_hi32 as u64) << 32 + (v.val_lo32 as u64),
+                            val: ((v.val_hi32 as u64) << 32) + (v.val_lo32 as u64),
                         })
                     })
                 })
                 .collect::<Result<Vec<_>, Error>>()?,
         },
-        Kind::Forward => Type::Forward {
+        Kind::Forward => Type::Fwd {
             name,
-            kind: if ty.kflag() {
+            fwd_kind: if ty.kflag() {
                 Kind::Union
             } else {
                 Kind::Struct
@@ -337,7 +341,7 @@ pub fn read_type<'a, O: ByteOrder>(
             type_id: ty.type_id(),
             linkage: file::Var::read::<O>(r)?.linkage,
         },
-        Kind::DataSection => Type::DataSection {
+        Kind::DataSection => Type::DataSec {
             name,
             size: ty.size(),
             sections: (0..ty.vlen())

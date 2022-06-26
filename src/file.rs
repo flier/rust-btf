@@ -65,7 +65,7 @@ pub struct Header {
 }
 
 impl Header {
-    pub const MAGIC: u16 = 0xeB9F;
+    pub const MAGIC: u16 = 0xeb9f;
     pub const VERSION: u8 = 1;
 
     pub fn is_le(&self) -> bool {
@@ -199,8 +199,11 @@ impl Info {
 
 #[repr(u8)]
 #[derive(Clone, Copy, Debug, PartialEq, Display, From)]
-#[cfg_attr(feature = "serde", derive(Deserialize, Serialize))]
-#[cfg_attr(feature = "serde", serde(rename_all = "lowercase"))]
+#[cfg_attr(
+    feature = "serde",
+    derive(Deserialize, Serialize),
+    serde(rename_all = "lowercase")
+)]
 pub enum Kind {
     Unknown = 0,
     Integer = 1,
@@ -559,7 +562,11 @@ impl<'a> ReadExt<'a> for Var {
 
 #[repr(u32)]
 #[derive(Clone, Copy, Debug, PartialEq)]
-#[cfg_attr(feature = "serde", derive(Deserialize, Serialize))]
+#[cfg_attr(
+    feature = "serde",
+    derive(Deserialize, Serialize),
+    serde(rename_all = "lowercase")
+)]
 pub enum Linkage {
     Static = 0,
     Global = 1,
@@ -619,6 +626,7 @@ impl<'a> ReadExt<'a> for DeclTag {
     }
 }
 
+#[derive(Clone, Debug)]
 pub struct File<'a> {
     pub header: Header,
     pub types: untrusted::Input<'a>,
@@ -651,8 +659,8 @@ impl<'a> ReadExt<'a> for File<'a> {
 
 pub fn parse(input: untrusted::Input) -> Result<File, Error> {
     match input.as_slice_less_safe() {
-        [0x9F, 0xeB, ..] => input.read_all(EndOfInput, File::read::<LittleEndian>),
-        [0xeB, 0x9F, ..] => input.read_all(EndOfInput, File::read::<BigEndian>),
+        [0x9f, 0xeb, ..] => input.read_all(EndOfInput, File::read::<LittleEndian>),
+        [0xeb, 0x9f, ..] => input.read_all(EndOfInput, File::read::<BigEndian>),
         _ => Err(Malformed("invalid magic")),
     }
 }

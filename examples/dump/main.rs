@@ -1,20 +1,20 @@
-#[macro_use]
-extern crate log;
-
 use std::fmt;
 use std::fs::File;
 use std::io::{self, Write};
 use std::path::PathBuf;
 use std::str::{self, FromStr};
 
-use anyhow::{bail, Context, Error};
+use anyhow::{bail, Error};
+use log::debug;
 use memmap::Mmap;
+use serde::Serialize;
 use structopt::StructOpt;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum Format {
     Text,
     JSON,
+    PrettyJSON,
     YAML,
     Rust,
 }
@@ -36,7 +36,27 @@ impl FromStr for Format {
 #[derive(StructOpt, Debug)]
 #[structopt(name = "btfdump")]
 struct Opt {
-    /// Output format (c, rust, text, etc.)
+    /// Generate text output.
+    #[structopt(short, long)]
+    text: bool,
+
+    /// Generate JSON output.
+    #[structopt(short, long)]
+    json: bool,
+
+    /// Generate human-readable JSON output.
+    #[structopt(short, long)]
+    pretty: bool,
+
+    /// Generate YAML output.
+    #[structopt(short, long)]
+    yaml: bool,
+
+    /// Generate Rust output.
+    #[structopt(short, long)]
+    rust: bool,
+
+    /// Output format (text, json, yaml or rust)
     #[structopt(short, long, default_value = "text")]
     format: Format,
 
@@ -44,20 +64,56 @@ struct Opt {
     #[structopt(short, long, parse(from_os_str))]
     output: Option<PathBuf>,
 
+    /// Pass a base BTF object.
+    #[structopt(short, long, parse(from_os_str))]
+    base_btf: Option<PathBuf>,
+
     /// Files to process
     #[structopt(name = "FILE", parse(from_os_str))]
     file: PathBuf,
 }
 
+impl Opt {
+    pub fn format(&self) -> Format {
+        if self.text {
+            Format::Text
+        } else if self.pretty {
+            Format::PrettyJSON
+        } else if self.json {
+            Format::JSON
+        } else if self.yaml {
+            Format::YAML
+        } else if self.rust {
+            Format::Rust
+        } else {
+            self.format
+        }
+    }
+}
+
 const ANON: &str = "(anon)";
 
-struct TextFmt<'a>(btf::Type<'a>);
+#[derive(Debug, Clone, PartialEq, Serialize)]
+struct Types<'a> {
+    pub types: Vec<Type<'a>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+struct Type<'a> {
+    pub id: usize,
+    #[serde(flatten)]
+    pub ty: btf::Type<'a>,
+}
+
+struct TextFmt<'a>(&'a Type<'a>, &'a [Type<'a>]);
 
 impl<'a> fmt::Display for TextFmt<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match &self.0 {
+        write!(f, "[{}] ", self.0.id)?;
+
+        match &self.0.ty {
             btf::Type::Void => write!(f, "VOID\n"),
-            btf::Type::Integer {
+            btf::Type::Int {
                 name,
                 size,
                 bits_offset,
@@ -74,7 +130,7 @@ impl<'a> fmt::Display for TextFmt<'a> {
                     encoding
                 )
             }
-            btf::Type::Pointer { name, type_id } => {
+            btf::Type::Ptr { name, type_id } => {
                 write!(f, "PTR '{}' type_id={}\n", name.unwrap_or(ANON), type_id)
             }
             btf::Type::Array {
@@ -164,17 +220,17 @@ impl<'a> fmt::Display for TextFmt<'a> {
                 )?;
 
                 for v in values {
-                    write!(f, "\t'{}' val={}\n", v.name.unwrap_or(ANON), v.value)?;
+                    write!(f, "\t'{}' val={}\n", v.name.unwrap_or(ANON), v.val)?;
                 }
 
                 Ok(())
             }
-            btf::Type::Forward { name, kind } => {
+            btf::Type::Fwd { name, fwd_kind } => {
                 write!(
                     f,
                     "FWD '{}' fwd_kind={}\n",
                     name.unwrap_or(ANON),
-                    kind.to_string().to_lowercase()
+                    fwd_kind.to_string().to_lowercase()
                 )
             }
             btf::Type::Typedef { name, type_id } => {
@@ -243,20 +299,20 @@ impl<'a> fmt::Display for TextFmt<'a> {
             } => {
                 write!(
                     f,
-                    "VAR '{}' type_id={} linkage={}\n",
+                    "VAR '{}' type_id={}, linkage={}\n",
                     name.unwrap_or(ANON),
                     type_id,
                     linkage
                 )
             }
-            btf::Type::DataSection {
+            btf::Type::DataSec {
                 name,
                 size,
                 sections,
             } => {
                 write!(
                     f,
-                    "DATASECTION '{}' size={} vlen={}\n",
+                    "DATASEC '{}' size={} vlen={}\n",
                     name.unwrap_or(ANON),
                     size,
                     sections.len()
@@ -265,8 +321,17 @@ impl<'a> fmt::Display for TextFmt<'a> {
                 for s in sections {
                     write!(
                         f,
-                        "\ttype_id={} offset={} size={}\n",
-                        s.type_id, s.offset, s.size
+                        "\ttype_id={} offset={} size={} (VAR '{}')\n",
+                        s.type_id,
+                        s.offset,
+                        s.size,
+                        if let btf::Type::Variable { name, .. } =
+                            self.1[(s.type_id - 1) as usize].ty
+                        {
+                            name.unwrap_or(ANON)
+                        } else {
+                            "UNKNOWN"
+                        }
                     )?;
                 }
 
@@ -306,6 +371,8 @@ fn main() -> Result<(), Error> {
     let opt = Opt::from_args();
     debug!("opts: {:?}", &opt);
 
+    let format = opt.format();
+
     let mut w = if let Some(path) = opt.output {
         either::Left(File::create(path)?)
     } else {
@@ -315,22 +382,29 @@ fn main() -> Result<(), Error> {
     let f = File::open(&opt.file)?;
     let mm = unsafe { Mmap::map(&f)? };
 
-    for (idx, res) in btf::parse(&mm).context("parse BTF file")?.enumerate() {
-        let ty = res?;
+    let types = Types {
+        types: (1..)
+            .zip(btf::parse(&mm)?)
+            .map(|(id, res)| res.map(|ty| Type { id, ty }))
+            .collect::<Result<Vec<_>, btf::Error>>()?,
+    };
 
-        match opt.format {
-            Format::Text => {
-                write!(&mut w, "[{}] {}", idx + 1, TextFmt(ty))?;
-            }
-            Format::JSON => {
-                serde_json::to_writer(&mut w, &ty)?;
-                write!(&mut w, "\n")?;
-            }
-            Format::YAML => {
-                serde_yaml::to_writer(&mut w, &ty)?;
-            }
-            Format::Rust => {}
+    match format {
+        Format::JSON => {
+            serde_json::to_writer(&mut w, &types)?;
         }
+        Format::PrettyJSON => {
+            serde_json::to_writer_pretty(&mut w, &types)?;
+        }
+        Format::YAML => {
+            serde_yaml::to_writer(&mut w, &types)?;
+        }
+        Format::Text => {
+            for res in &types.types {
+                write!(&mut w, "{}", TextFmt(res, &types.types))?;
+            }
+        }
+        Format::Rust => {}
     }
 
     Ok(())
