@@ -2,7 +2,7 @@ use core::mem;
 use core::str::{from_utf8, FromStr};
 
 use byteorder::{BigEndian, ByteOrder, LittleEndian};
-use derive_more::{Deref, From};
+use derive_more::{Deref, Display, From};
 
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
@@ -198,7 +198,7 @@ impl Info {
 }
 
 #[repr(u8)]
-#[derive(Clone, Copy, Debug, PartialEq, From)]
+#[derive(Clone, Copy, Debug, PartialEq, Display, From)]
 #[cfg_attr(feature = "serde", derive(Deserialize, Serialize))]
 #[cfg_attr(feature = "serde", serde(rename_all = "lowercase"))]
 pub enum Kind {
@@ -222,33 +222,6 @@ pub enum Kind {
     DeclTag = 17,
     TypeTag = 18,
     Enum64 = 19,
-}
-
-impl core::fmt::Display for Kind {
-    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
-        match self {
-            Kind::Unknown => write!(f, "void"),
-            Kind::Integer => write!(f, "integer"),
-            Kind::Pointer => write!(f, "pointer"),
-            Kind::Array => write!(f, "array"),
-            Kind::Struct => write!(f, "struct"),
-            Kind::Union => write!(f, "union"),
-            Kind::Enum => write!(f, "enum"),
-            Kind::Forward => write!(f, "forward"),
-            Kind::Typedef => write!(f, "typedef"),
-            Kind::Volatile => write!(f, "volatile"),
-            Kind::Const => write!(f, "const"),
-            Kind::Restrict => write!(f, "restrict"),
-            Kind::Func => write!(f, "func"),
-            Kind::FuncProto => write!(f, "func_proto"),
-            Kind::Variable => write!(f, "variable"),
-            Kind::DataSection => write!(f, "data_section"),
-            Kind::Float => write!(f, "float"),
-            Kind::DeclTag => write!(f, "decl tag"),
-            Kind::TypeTag => write!(f, "type tag"),
-            Kind::Enum64 => write!(f, "enum64"),
-        }
-    }
 }
 
 impl Kind {

@@ -170,7 +170,12 @@ impl<'a> fmt::Display for TextFmt<'a> {
                 Ok(())
             }
             btf::Type::Forward { name, kind } => {
-                write!(f, "FWD '{}' fwd_kind={}\n", name.unwrap_or(ANON), kind)
+                write!(
+                    f,
+                    "FWD '{}' fwd_kind={}\n",
+                    name.unwrap_or(ANON),
+                    kind.to_string().to_lowercase()
+                )
             }
             btf::Type::Typedef { name, type_id } => {
                 write!(
