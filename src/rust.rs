@@ -45,7 +45,7 @@ impl<'a> ToTokens for TypeFmt<'a> {
         let ty = self.types.get_type(self.type_id).expect("type");
 
         tokens.append_all(match *ty {
-            Type::Void => quote! { c_void },
+            Type::Void => quote! { ::libc::c_void },
             Type::Int {
                 name,
                 size,
@@ -56,27 +56,30 @@ impl<'a> ToTokens for TypeFmt<'a> {
                 if encoding.is_bool() {
                     quote! { bool }
                 } else if bits_offset == 0 {
-                    let ident = Ident::new(
-                        &format!(
-                            "{}{}",
-                            if encoding.is_signed() { "i" } else { "u" },
-                            size * 8
-                        ),
-                        Span::call_site(),
-                    );
-
-                    quote! { #ident }
+                    match (encoding.is_signed(), size) {
+                        (true, 1) => quote! { ::libc::c_char },
+                        (false, 1) => quote! { ::libc::c_uchar },
+                        (true, 2) => quote! { ::libc::c_short },
+                        (false, 2) => quote! { ::libc::c_ushort },
+                        (true, 4) => quote! { ::libc::c_int },
+                        (false, 4) => quote! { ::libc::c_uint },
+                        (true, 8) => quote! { ::libc::c_longlong },
+                        (false, 8) => quote! { ::libc::c_ulonglong },
+                        (true, 16) => quote! { i128 },
+                        (false, 16) => quote! { u128 },
+                        _ => panic!("unsupported integer size"),
+                    }
                 } else {
                     let ident = Ident::new(name, Span::call_site());
 
                     quote! { #ident }
                 }
             }
-            Type::Float { size, .. } => {
-                let ident = Ident::new(&format!("f{}", size * 8), Span::call_site());
-
-                quote! { #ident }
-            }
+            Type::Float { size, .. } => match size {
+                4 => quote! { ::libc::c_float },
+                8 => quote! { ::libc::c_double },
+                _ => panic!("unsupported float size"),
+            },
             Type::Ptr { type_id, .. } => {
                 let ty = self.types.get_type(type_id).expect("pointee type");
 
@@ -261,7 +264,7 @@ impl<'a> ToTokens for TypeDecl<'a> {
                     let ident = Ident::new(fwd_name, Span::call_site());
 
                     Some(quote! {
-                        pub type #ident = c_void;
+                        pub type #ident = ::libc::c_void;
                     })
                 }
             }
@@ -393,7 +396,7 @@ impl<'a> ToTokens for UnionDecl<'a> {
             let t = TypeFmt::new(self.types, self.ns.clone(), m.type_id);
 
             quote! {
-                pub #field: core::mem::ManuallyDrop<#t>,
+                pub #field: ::core::mem::ManuallyDrop<#t>,
             }
         });
 
@@ -605,8 +608,6 @@ pub struct Types<'a> {
     pub types: &'a [Type<'a>],
     #[new(value = "2021")]
     pub edition: usize,
-    #[new(value = "true")]
-    pub core_ffi: bool,
 }
 
 impl<'a> Types<'a> {
@@ -643,34 +644,6 @@ impl<'a> Types<'a> {
 
 impl<'a> ToTokens for Types<'a> {
     fn to_tokens(&self, tokens: &mut TokenStream) {
-        let half_crate = if self.edition < 2018 {
-            Some(quote! {
-                extern crate half;
-            })
-        } else {
-            None
-        };
-
-        let use_c_void = if self.core_ffi {
-            quote! {
-                use core::ffi::c_void;
-            }
-        } else {
-            quote! {
-                use ::libc::c_void;
-            }
-        };
-
-        let f16_decl = if cfg!(feature = "half") {
-            quote! {
-                use half::f16;
-            }
-        } else {
-            quote! {
-                pub type f16 = i16;
-            }
-        };
-
         let ns = Rc::new(RefCell::new(Namespace::default()));
 
         let types = self.types.iter().enumerate().map(|(idx, ty)| {
@@ -684,10 +657,6 @@ impl<'a> ToTokens for Types<'a> {
         tokens.append_all(quote! {
             #![allow(non_camel_case_types)]
             #![allow(non_upper_case_globals)]
-
-            #half_crate
-            #use_c_void
-            #f16_decl
 
             #(#types)*
         })
