@@ -5,10 +5,14 @@ extern crate alloc;
 
 mod error;
 pub mod file;
-mod ty;
+pub mod ty;
+
+#[cfg(feature = "rust")]
+pub mod rust;
 
 pub use self::error::Error;
 pub use self::ty::{Type, Types};
+pub use self::file::Kind;
 
 pub fn parse(b: &[u8]) -> Result<self::Types, Error> {
     self::Types::parse(untrusted::Input::from(b))

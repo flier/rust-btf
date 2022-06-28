@@ -382,6 +382,20 @@ bitflags::bitflags! {
     }
 }
 
+impl IntEncoding {
+    pub fn is_signed(&self) -> bool {
+        self.contains(IntEncoding::SIGNED)
+    }
+
+    pub fn is_char(&self) -> bool {
+        self.contains(IntEncoding::CHAR)
+    }
+
+    pub fn is_bool(&self) -> bool {
+        self.contains(IntEncoding::BOOL)
+    }
+}
+
 impl FromStr for IntEncoding {
     type Err = Error;
 

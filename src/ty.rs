@@ -9,7 +9,7 @@ use serde::Serialize;
 
 use crate::{
     file::{self, Kind, ReadExt},
-    Error,
+    Error::{self, *},
 };
 
 #[derive(Debug, Clone, PartialEq, IsVariant)]
@@ -21,18 +21,16 @@ use crate::{
 pub enum Type<'a> {
     Void,
     Int {
-        name: Option<&'a str>,
+        name: &'a str,
         size: usize,
         bits_offset: usize,
         nr_bits: usize,
         encoding: file::IntEncoding,
     },
     Ptr {
-        name: Option<&'a str>,
         type_id: u32,
     },
     Array {
-        name: Option<&'a str>,
         type_id: u32,
         index_type_id: u32,
         nr_elems: u32,
@@ -53,58 +51,82 @@ pub enum Type<'a> {
         values: Vec<Enum<'a>>,
     },
     Fwd {
-        name: Option<&'a str>,
+        name: &'a str,
         fwd_kind: file::Kind,
     },
     Typedef {
-        name: Option<&'a str>,
+        name: &'a str,
         type_id: u32,
     },
     Volatile {
-        name: Option<&'a str>,
         type_id: u32,
     },
     Const {
-        name: Option<&'a str>,
         type_id: u32,
     },
     Restrict {
-        name: Option<&'a str>,
         type_id: u32,
     },
     Func {
-        name: Option<&'a str>,
+        name: &'a str,
         type_id: u32,
         linkage: file::Linkage,
     },
     FuncProto {
-        name: Option<&'a str>,
         ret_type_id: u32,
         params: Vec<Param<'a>>,
     },
     Variable {
-        name: Option<&'a str>,
+        name: &'a str,
         type_id: u32,
         linkage: file::Linkage,
     },
     DataSec {
-        name: Option<&'a str>,
+        name: &'a str,
         size: usize,
         sections: Vec<file::VarSectInfo>,
     },
     Float {
-        name: Option<&'a str>,
+        name: &'a str,
         size: usize,
     },
     DeclTag {
-        name: Option<&'a str>,
+        name: &'a str,
         type_id: u32,
         component_idx: i32,
     },
     TypeTag {
-        name: Option<&'a str>,
+        name: &'a str,
         type_id: u32,
     },
+}
+
+impl<'a> Type<'a> {
+    pub const VOID: Type<'a> = Type::Void;
+
+    pub fn name(&self) -> Option<&str> {
+        match *self {
+            Type::Void => None,
+            Type::Int { name, .. } => Some(name),
+            Type::Ptr { .. } => None,
+            Type::Array { .. } => None,
+            Type::Struct { name, .. } => name,
+            Type::Union { name, .. } => name,
+            Type::Enum { name, .. } => name,
+            Type::Fwd { name, .. } => Some(name),
+            Type::Typedef { name, .. } => Some(name),
+            Type::Volatile { .. } => None,
+            Type::Const { .. } => None,
+            Type::Restrict { .. } => None,
+            Type::Func { name, .. } => Some(name),
+            Type::FuncProto { .. } => None,
+            Type::Variable { name, .. } => Some(name),
+            Type::DataSec { name, .. } => Some(name),
+            Type::Float { name, .. } => Some(name),
+            Type::DeclTag { name, .. } => Some(name),
+            Type::TypeTag { name, .. } => Some(name),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -194,7 +216,7 @@ pub fn read_type<'a, O: ByteOrder>(
             let int = file::Int::read::<O>(r)?;
 
             Type::Int {
-                name,
+                name: name.ok_or(Expected("int name"))?,
                 size: ty.size(),
                 bits_offset: int.offset(),
                 nr_bits: int.bits(),
@@ -202,14 +224,12 @@ pub fn read_type<'a, O: ByteOrder>(
             }
         }
         Kind::Pointer => Type::Ptr {
-            name,
             type_id: ty.type_id(),
         },
         Kind::Array => {
             let array = file::Array::read::<O>(r)?;
 
             Type::Array {
-                name,
                 type_id: array.ty,
                 index_type_id: array.index_ty,
                 nr_elems: array.nelems,
@@ -294,7 +314,7 @@ pub fn read_type<'a, O: ByteOrder>(
                 .collect::<Result<Vec<_>, Error>>()?,
         },
         Kind::Forward => Type::Fwd {
-            name,
+            name: name.ok_or(Expected("forward name"))?,
             fwd_kind: if ty.kflag() {
                 Kind::Union
             } else {
@@ -302,28 +322,24 @@ pub fn read_type<'a, O: ByteOrder>(
             },
         },
         Kind::Typedef => Type::Typedef {
-            name,
+            name: name.ok_or(Expected("typedef name"))?,
             type_id: ty.type_id(),
         },
         Kind::Volatile => Type::Volatile {
-            name,
             type_id: ty.type_id(),
         },
         Kind::Const => Type::Const {
-            name,
             type_id: ty.type_id(),
         },
         Kind::Restrict => Type::Restrict {
-            name,
             type_id: ty.type_id(),
         },
         Kind::Func => Type::Func {
-            name,
+            name: name.ok_or(Expected("func name"))?,
             type_id: ty.type_id(),
             linkage: file::Linkage::from(ty.vlen() as u32),
         },
         Kind::FuncProto => Type::FuncProto {
-            name,
             ret_type_id: ty.type_id(),
             params: (0..ty.vlen())
                 .map(|_| {
@@ -337,28 +353,28 @@ pub fn read_type<'a, O: ByteOrder>(
                 .collect::<Result<Vec<_>, Error>>()?,
         },
         Kind::Variable => Type::Variable {
-            name,
+            name: name.ok_or(Expected("var name"))?,
             type_id: ty.type_id(),
             linkage: file::Var::read::<O>(r)?.linkage,
         },
         Kind::DataSection => Type::DataSec {
-            name,
+            name: name.ok_or(Expected("datasec name"))?,
             size: ty.size(),
             sections: (0..ty.vlen())
                 .map(|_| file::VarSectInfo::read::<O>(r))
                 .collect::<Result<Vec<_>, Error>>()?,
         },
         Kind::Float => Type::Float {
-            name,
+            name: name.ok_or(Expected("float name"))?,
             size: ty.size(),
         },
         Kind::DeclTag => Type::DeclTag {
-            name,
+            name: name.ok_or(Expected("decl_tag name"))?,
             type_id: ty.type_id(),
             component_idx: file::DeclTag::read::<O>(r)?.component_idx,
         },
         Kind::TypeTag => Type::TypeTag {
-            name,
+            name: name.ok_or(Expected("type_tag name"))?,
             type_id: ty.type_id(),
         },
     })

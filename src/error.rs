@@ -19,6 +19,12 @@ pub enum Error {
     #[cfg_attr(feature = "std", error("unexpected {0}"))]
     Unexpected(&'static str),
 
+    #[cfg_attr(feature = "std", error("expected {0}"))]
+    Expected(&'static str),
+
+    #[cfg_attr(feature = "std", error(transparent))]
+    FmtError(#[cfg_attr(feature = "std", from)] core::fmt::Error),
+
     #[cfg_attr(feature = "std", error(transparent))]
     Utf8Error(#[cfg_attr(feature = "std", from)] core::str::Utf8Error),
 

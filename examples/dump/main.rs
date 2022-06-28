@@ -98,6 +98,17 @@ struct Types<'a> {
     pub types: Vec<Type<'a>>,
 }
 
+impl<'a> Types<'a> {
+    pub fn new(types: btf::Types<'a>) -> Result<Types<'a>, Error> {
+        Ok(Types {
+            types: types
+                .enumerate()
+                .map(|(idx, res)| res.map(|ty| Type { id: idx + 1, ty }))
+                .collect::<Result<Vec<_>, btf::Error>>()?,
+        })
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize)]
 struct Type<'a> {
     pub id: usize,
@@ -123,18 +134,13 @@ impl<'a> fmt::Display for TextFmt<'a> {
                 write!(
                     f,
                     "INT '{}' size={} bits_offset={} nr_bits={} encoding={:?}\n",
-                    name.unwrap_or(ANON),
-                    size,
-                    bits_offset,
-                    nr_bits,
-                    encoding
+                    name, size, bits_offset, nr_bits, encoding
                 )
             }
-            btf::Type::Ptr { name, type_id } => {
-                write!(f, "PTR '{}' type_id={}\n", name.unwrap_or(ANON), type_id)
+            btf::Type::Ptr { type_id } => {
+                write!(f, "PTR '{}' type_id={}\n", ANON, type_id)
             }
             btf::Type::Array {
-                name,
                 type_id,
                 index_type_id,
                 nr_elems,
@@ -142,10 +148,7 @@ impl<'a> fmt::Display for TextFmt<'a> {
                 write!(
                     f,
                     "ARRAY '{}' type_id={} index_type_id={} nr_elems={}\n",
-                    name.unwrap_or(ANON),
-                    type_id,
-                    index_type_id,
-                    nr_elems
+                    ANON, type_id, index_type_id, nr_elems
                 )
             }
             btf::Type::Struct {
@@ -229,36 +232,21 @@ impl<'a> fmt::Display for TextFmt<'a> {
                 write!(
                     f,
                     "FWD '{}' fwd_kind={}\n",
-                    name.unwrap_or(ANON),
+                    name,
                     fwd_kind.to_string().to_lowercase()
                 )
             }
             btf::Type::Typedef { name, type_id } => {
-                write!(
-                    f,
-                    "TYPEDEF '{}' type_id={}\n",
-                    name.unwrap_or(ANON),
-                    type_id
-                )
+                write!(f, "TYPEDEF '{}' type_id={}\n", name, type_id)
             }
-            btf::Type::Volatile { name, type_id } => {
-                write!(
-                    f,
-                    "VOLATILE '{}' type_id={}\n",
-                    name.unwrap_or(ANON),
-                    type_id
-                )
+            btf::Type::Volatile { type_id } => {
+                write!(f, "VOLATILE '{}' type_id={}\n", ANON, type_id)
             }
-            btf::Type::Const { name, type_id } => {
-                write!(f, "CONST '{}' type_id={}\n", name.unwrap_or(ANON), type_id)
+            btf::Type::Const { type_id } => {
+                write!(f, "CONST '{}' type_id={}\n", ANON, type_id)
             }
-            btf::Type::Restrict { name, type_id } => {
-                write!(
-                    f,
-                    "RESTRICT '{}' type_id={}\n",
-                    name.unwrap_or(ANON),
-                    type_id
-                )
+            btf::Type::Restrict { type_id } => {
+                write!(f, "RESTRICT '{}' type_id={}\n", ANON, type_id)
             }
             btf::Type::Func {
                 name,
@@ -268,26 +256,23 @@ impl<'a> fmt::Display for TextFmt<'a> {
                 write!(
                     f,
                     "FUNC '{}' type_id={} linkage={}\n",
-                    name.unwrap_or(ANON),
-                    type_id,
-                    linkage
+                    name, type_id, linkage
                 )
             }
             btf::Type::FuncProto {
-                name,
                 ret_type_id,
                 params,
             } => {
                 write!(
                     f,
                     "FUNC_PROTO '{}' ret_type_id={} vlen={}\n",
-                    name.unwrap_or(ANON),
+                    ANON,
                     ret_type_id,
                     params.len()
                 )?;
 
                 for p in params {
-                    write!(f, "\t'{}' type_id={}\n", p.name.unwrap_or(ANON), p.type_id,)?;
+                    write!(f, "\t'{}' type_id={}\n", p.name.unwrap_or(ANON), p.type_id)?;
                 }
 
                 Ok(())
@@ -300,9 +285,7 @@ impl<'a> fmt::Display for TextFmt<'a> {
                 write!(
                     f,
                     "VAR '{}' type_id={}, linkage={}\n",
-                    name.unwrap_or(ANON),
-                    type_id,
-                    linkage
+                    name, type_id, linkage
                 )
             }
             btf::Type::DataSec {
@@ -313,7 +296,7 @@ impl<'a> fmt::Display for TextFmt<'a> {
                 write!(
                     f,
                     "DATASEC '{}' size={} vlen={}\n",
-                    name.unwrap_or(ANON),
+                    name,
                     size,
                     sections.len()
                 )?;
@@ -328,7 +311,7 @@ impl<'a> fmt::Display for TextFmt<'a> {
                         if let btf::Type::Variable { name, .. } =
                             self.1[(s.type_id - 1) as usize].ty
                         {
-                            name.unwrap_or(ANON)
+                            name
                         } else {
                             "UNKNOWN"
                         }
@@ -338,7 +321,7 @@ impl<'a> fmt::Display for TextFmt<'a> {
                 Ok(())
             }
             btf::Type::Float { name, size } => {
-                write!(f, "FLOAT '{}' size={}\n", name.unwrap_or(ANON), size)
+                write!(f, "FLOAT '{}' size={}\n", name, size)
             }
             btf::Type::DeclTag {
                 name,
@@ -348,18 +331,11 @@ impl<'a> fmt::Display for TextFmt<'a> {
                 write!(
                     f,
                     "DECL_TAG '{}' type_id={} component_idx={}\n",
-                    name.unwrap_or(ANON),
-                    type_id,
-                    component_idx
+                    name, type_id, component_idx
                 )
             }
             btf::Type::TypeTag { name, type_id } => {
-                write!(
-                    f,
-                    "TYPE_TAG '{}' type_id={}\n",
-                    name.unwrap_or(ANON),
-                    type_id
-                )
+                write!(f, "TYPE_TAG '{}' type_id={}\n", name, type_id)
             }
         }
     }
@@ -381,30 +357,45 @@ fn main() -> Result<(), Error> {
 
     let f = File::open(&opt.file)?;
     let mm = unsafe { Mmap::map(&f)? };
+    let types = btf::parse(&mm)?;
 
-    let types = Types {
-        types: (1..)
-            .zip(btf::parse(&mm)?)
-            .map(|(id, res)| res.map(|ty| Type { id, ty }))
-            .collect::<Result<Vec<_>, btf::Error>>()?,
-    };
+    let base_btf = opt
+        .base_btf
+        .map(|file| -> Result<_, Error> {
+            let f = File::open(file)?;
+            let mm = unsafe { Mmap::map(&f)? };
+            Ok(mm)
+        })
+        .transpose()?;
+    let base_types = base_btf
+        .as_ref()
+        .map(|mm| btf::parse(&mm)?.collect())
+        .transpose()?;
 
     match format {
         Format::JSON => {
-            serde_json::to_writer(&mut w, &types)?;
+            serde_json::to_writer(&mut w, &Types::new(types)?)?;
         }
         Format::PrettyJSON => {
-            serde_json::to_writer_pretty(&mut w, &types)?;
+            serde_json::to_writer_pretty(&mut w, &Types::new(types)?)?;
         }
         Format::YAML => {
-            serde_yaml::to_writer(&mut w, &types)?;
+            serde_yaml::to_writer(&mut w, &Types::new(types)?)?;
         }
         Format::Text => {
+            let types = Types::new(types)?;
+
             for res in &types.types {
                 write!(&mut w, "{}", TextFmt(res, &types.types))?;
             }
         }
-        Format::Rust => {}
+        Format::Rust => {
+            let types = types.collect::<Result<Vec<_>, btf::Error>>()?;
+
+            let src = btf::rust::dump(base_types.as_ref().map(Vec::as_slice), types.as_slice());
+
+            w.write_all(src.as_bytes())?;
+        }
     }
 
     Ok(())
